@@ -89,6 +89,73 @@ curl http://127.0.0.1:8000/count/BQgVc
 
 Only requests to `/{key}` increase the count. Calls to `/url/{key}` and `/count/{key}` don't.
 
+## Path parameters vs query parameters
+
+Both are ways to pass a value to an endpoint through the URL.
+
+- A **path parameter** is part of the URL path itself: `/count/BQgVc`. It usually identifies *which* resource you want, and it is always required.
+- A **query parameter** comes after a `?` as `name=value` pairs, joined with `&`: `/search?q=docs&limit=5`. It usually filters, sorts or tweaks the result, and it can be optional.
+
+| | Path parameter | Query parameter |
+| --- | --- | --- |
+| Example URL | `/count/BQgVc` | `/count?key=BQgVc` |
+| Declared in the route | Yes, as `{key}` in the path | No |
+| Required? | Always | Only if it has no default |
+| Typical use | Identify one resource | Filter, sort, paginate, options |
+| If missing | The route doesn't match (`404`) | `422` validation error, or the default is used |
+
+### How they differ in the implementation
+
+FastAPI decides which kind a parameter is by looking at the route path. If the function argument's name appears in `{braces}`, it is a path parameter. Otherwise it is a query parameter.
+
+**Path parameter.** This is what the project uses. `key` appears in the path, so FastAPI takes it from the URL:
+
+```python
+@app.get("/count/{key}")
+def get_visits(key: str):
+    data = key_store.get(key)
+    ...
+```
+
+```bash
+curl http://127.0.0.1:8000/count/BQgVc
+```
+
+**Query parameter.** This is not in the project, but here is the same endpoint written with a query parameter. `key` is not in the path, so FastAPI reads it from the query string:
+
+```python
+@app.get("/count")
+def get_visits(key: str):
+    data = key_store.get(key)
+    ...
+```
+
+```bash
+curl "http://127.0.0.1:8000/count?key=BQgVc"
+```
+
+Calling `/count` without `?key=...` returns `422` with `Field required`, because `key` has no default.
+
+**Optional query parameters.** Give the argument a default and it becomes optional. FastAPI also converts the value to the declared type and returns `422` if it can't:
+
+```python
+@app.get("/search")
+def search(q: str | None = None, limit: int = 10):
+    return {"q": q, "limit": limit}
+```
+
+| Request | Result |
+| --- | --- |
+| `/search` | `{"q": null, "limit": 10}` |
+| `/search?q=docs&limit=5` | `{"q": "docs", "limit": 5}` |
+| `/search?limit=abc` | `422`, `limit` must be an integer |
+
+### Which one does this project use?
+
+Only path parameters, because the key identifies one specific short link: `/url/{key}`, `/count/{key}` and `/{key}`.
+
+`POST /shorten` takes neither. It reads `long_url` from the JSON **request body**, which FastAPI does when the argument is a Pydantic model (`InputRequest`). Use a body for data you are creating or sending, and URL parameters for data you are looking up.
+
 ## Configuration
 
 `BASE_URL` in `url_shortener.py` is the prefix added to the `short_url` in the `/shorten` response. It is a placeholder (`www.xyz.com`) with no scheme, so the returned link won't work locally. Use only the key, for example `http://127.0.0.1:8000/BQgVc`. Change `BASE_URL` to your own domain when you deploy.
